@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 from . import resnet, resnext, mobilenet, hrnet
 from mit_semseg.lib.nn import SynchronizedBatchNorm2d
 BatchNorm2d = SynchronizedBatchNorm2d
@@ -19,14 +20,29 @@ class SegmentationModuleBase(nn.Module):
 
 
 class SegmentationModule(SegmentationModuleBase):
-    def __init__(self, net_enc, net_dec, crit, deep_sup_scale=None):
+    def __init__(self, net_enc, net_dec, crit, batch_size, training_type=None, deep_sup_scale=None):
         super(SegmentationModule, self).__init__()
         self.encoder = net_enc
         self.decoder = net_dec
         self.crit = crit
         self.deep_sup_scale = deep_sup_scale
+        self.batch_size = batch_size
+        self.training_type = training_type
 
     def forward(self, feed_dict, *, segSize=None):
+        # added the following for training on 1 gpu
+        # if the dataset is loaded as a list, this will
+        # raise a TypeError while trying to access it as a dictionary.
+        if type(feed_dict) is list:
+            feed_dict = feed_dict[0]
+            # also, convert to torch.cuda.FloatTensor
+            if torch.cuda.is_available():
+                feed_dict['img_data'] = feed_dict['img_data'].cuda()
+                feed_dict['seg_label'] = feed_dict['seg_label'].cuda()
+            else:
+                raise RunTimeError('Cannot convert torch.Floattensor into torch.cuda.FloatTensor')
+        # added above
+        
         # training
         if segSize is None:
             if self.deep_sup_scale is not None: # use deep supervision technique
@@ -35,11 +51,52 @@ class SegmentationModule(SegmentationModuleBase):
                 pred = self.decoder(self.encoder(feed_dict['img_data'], return_feature_maps=True))
 
             loss = self.crit(pred, feed_dict['seg_label'])
+            #print("loss: {} and its type:{}".format(loss, type(loss)))
+            if self.training_type == 'seq':
+                l = len(feed_dict['seg_label'])
+                seq_len = l / self.batch_size 
+                class_based_pred = pred.argmax(dim=1)
+                # loss for each individual image
+                losses = [self.crit(pred[i,:,:,:].unsqueeze(0), feed_dict['seg_label'][i,:,:].unsqueeze(0)) for i in range(l)]
+                ##this one is a test
+                #used the (number of equal pixels in both pred and gt label)/(total number pixel in the image) as the weight = similarity level
+                weights = [] 
+                #[torch.sum(pred.argmax(dim=1)[i,:,:] == feed_dict['seg_label'][i,:,:]).item()/\
+                #        (feed_dict['seg_label'][0,:,:].shape[0] *feed_dict['seg_label'][0,:,:].shape[1]) for i in range(l)]
+                # to change the weigh to one for images with actual gt labels
+                ind = 0 # the index of the image in the sequence with gt
+                for i in range(len(losses)):
+                    if i % seq_len == 0:
+                        ind = i
+                    weights.append(torch.sum(pred.argmax(dim=1)[i,:,:] == pred.argmax(dim=1)[ind,:,:]).item()/(feed_dict['seg_label'][ind,:,:].shape[0] *
+                                                                           feed_dict['seg_label'][ind,:,:].shape[1]))
+                #print(f"losses: {losses}")
+                #print(f"weights: {weights}")
+                weighted_losses = [a*b for a,b in zip(losses, weights)]
+                #instead of averaging the loss for all sup and unsup togather, I separated them
+                sup_weighted_losses = []
+                unsup_weighted_losses = []
+                for i in range(len(weighted_losses)):
+                    if i % seq_len == 0:
+                        sup_weighted_losses.append(weighted_losses[i])
+                    else:
+                        unsup_weighted_losses.append(weighted_losses[i])
+                if len(sup_weighted_losses) != 0:
+                    sup_loss = torch.mean(torch.stack(sup_weighted_losses))
+                    loss[loss == loss.item()]  = sup_loss
+
+                if len(unsup_weighted_losses) != 0:
+                    unsup_loss = torch.mean(torch.stack(unsup_weighted_losses))
+                    loss = loss.add(unsup_loss)
+                
+            
+            #print("new loss: {} and its type:{}".format(loss, type(loss)))
+
             if self.deep_sup_scale is not None:
                 loss_deepsup = self.crit(pred_deepsup, feed_dict['seg_label'])
                 loss = loss + loss_deepsup * self.deep_sup_scale
 
-            acc = self.pixel_acc(pred, feed_dict['seg_label'])
+            acc = self.pixel_acc(pred, feed_dict['seg_label']) ## Sara: [TODO] should be change to be aligned with the sequences
             return loss, acc
         # inference
         else:

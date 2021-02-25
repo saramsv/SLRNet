@@ -73,6 +73,8 @@ _C.TRAIN.workers = 16
 _C.TRAIN.disp_iter = 20
 # manual seed
 _C.TRAIN.seed = 304
+_C.TRAIN.type = 'seq'
+_C.TRAIN.sup = True
 
 # -----------------------------------------------------------------------------
 # Validation

@@ -4,16 +4,18 @@ import time
 # import math
 import random
 import argparse
+import shutil
 from distutils.version import LooseVersion
 # Numerical libs
 import torch
 import torch.nn as nn
 # Our libs
 from mit_semseg.config import cfg
-from mit_semseg.dataset import TrainDataset
+from mit_semseg.dataset import TrainDataset, DecomTrainDataset
 from mit_semseg.models import ModelBuilder, SegmentationModule
 from mit_semseg.utils import AverageMeter, parse_devices, setup_logger
 from mit_semseg.lib.nn import UserScatteredDataParallel, user_scattered_collate, patch_replication_callback
+import evaluate
 
 
 # train one epoch
@@ -71,7 +73,8 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg):
             history['train']['acc'].append(acc.data.item())
 
 
-def checkpoint(nets, history, cfg, epoch):
+def checkpoint(nets, history, cfg, epoch, is_best):
+    # I am using 0 in the name of the current model
     print('Saving checkpoints...')
     (net_encoder, net_decoder, crit) = nets
 
@@ -80,13 +83,20 @@ def checkpoint(nets, history, cfg, epoch):
 
     torch.save(
         history,
-        '{}/history_epoch_{}.pth'.format(cfg.DIR, epoch))
+        '{}/history_epoch_{}.pth'.format(cfg.DIR, 0))
     torch.save(
         dict_encoder,
-        '{}/encoder_epoch_{}.pth'.format(cfg.DIR, epoch))
+        '{}/encoder_epoch_{}.pth'.format(cfg.DIR, 0))
     torch.save(
         dict_decoder,
-        '{}/decoder_epoch_{}.pth'.format(cfg.DIR, epoch))
+        '{}/decoder_epoch_{}.pth'.format(cfg.DIR, 0))
+    if is_best:
+        shutil.copyfile('{}/history_epoch_{}.pth'.format(cfg.DIR, 0), 
+        '{}/history_epoch_best.pth'.format(cfg.DIR))
+        shutil.copyfile('{}/encoder_epoch_{}.pth'.format(cfg.DIR, 0), 
+        '{}/encoder_epoch_best.pth'.format(cfg.DIR))
+        shutil.copyfile('{}/decoder_epoch_{}.pth'.format(cfg.DIR, 0),
+        '{}/decoder_epoch_best.pth'.format(cfg.DIR))
 
 
 def group_weight(module):
@@ -151,21 +161,32 @@ def main(cfg, gpus):
         num_class=cfg.DATASET.num_class,
         weights=cfg.MODEL.weights_decoder)
 
-    crit = nn.NLLLoss(ignore_index=-1)
+    nSamples = [611, 648, 754, 1169, 591, 429] #, 287]
+    normedWeights = [1 - (x / sum(nSamples)) for x in nSamples]
+    normedWeights = torch.FloatTensor(normedWeights).cuda()
+
+    crit = nn.NLLLoss(ignore_index=-1, weight=normedWeights) 
 
     if cfg.MODEL.arch_decoder.endswith('deepsup'):
         segmentation_module = SegmentationModule(
-            net_encoder, net_decoder, crit, cfg.TRAIN.deep_sup_scale)
+            net_encoder, net_decoder, crit, cfg.TRAIN.batch_size_per_gpu, cfg.TRAIN.type, cfg.TRAIN.deep_sup_scale)
     else:
         segmentation_module = SegmentationModule(
-            net_encoder, net_decoder, crit)
+            net_encoder, net_decoder, crit, cfg.TRAIN.batch_size, cfg.TRAIN.type)
 
     # Dataset and Loader
-    dataset_train = TrainDataset(
-        cfg.DATASET.root_dataset,
-        cfg.DATASET.list_train,
-        cfg.DATASET,
-        batch_per_gpu=cfg.TRAIN.batch_size_per_gpu)
+    if cfg.TRAIN.type == 'seq':
+        dataset_train = DecomTrainDataset(
+            cfg.DATASET.root_dataset,
+            cfg.DATASET.list_train,
+            cfg.DATASET,
+            batch_per_gpu=cfg.TRAIN.batch_size_per_gpu)
+    else:
+        dataset_train = TrainDataset(
+            cfg.DATASET.root_dataset,
+            cfg.DATASET.list_train,
+            cfg.DATASET,
+            batch_per_gpu=cfg.TRAIN.batch_size_per_gpu)
 
     loader_train = torch.utils.data.DataLoader(
         dataset_train,
@@ -195,12 +216,26 @@ def main(cfg, gpus):
 
     # Main loop
     history = {'train': {'epoch': [], 'loss': [], 'acc': []}}
-
+    best_acc = 0
     for epoch in range(cfg.TRAIN.start_epoch, cfg.TRAIN.num_epoch):
         train(segmentation_module, iterator_train, optimizers, history, epoch+1, cfg)
-
+        
+        #checkpoint(nets, history, cfg, epoch+1, False)
+        #if epoch % 1 == 0: # do the evaluation on the validate data every other epoch
+        if epoch > 0:
+            cfg.MODEL.weights_encoder = os.path.join(
+                cfg.DIR, 'encoder_' + cfg.VAL.checkpoint)
+            cfg.MODEL.weights_decoder = os.path.join(
+                cfg.DIR, 'decoder_' + cfg.VAL.checkpoint)
+        current_acc = evaluate.main(cfg, 0)
+        
+        is_best = current_acc > best_acc
+        best_acc = max(current_acc, best_acc)
+        #if is_best:
+        print("current best acc:{}".format(best_acc))
+        
         # checkpointing
-        checkpoint(nets, history, cfg, epoch+1)
+        checkpoint(nets, history, cfg, epoch+1, is_best)
 
     print('Training Done!')
 
@@ -231,7 +266,7 @@ if __name__ == '__main__':
         nargs=argparse.REMAINDER,
     )
     args = parser.parse_args()
-
+    
     cfg.merge_from_file(args.cfg)
     cfg.merge_from_list(args.opts)
     # cfg.freeze()
@@ -248,11 +283,14 @@ if __name__ == '__main__':
         f.write("{}".format(cfg))
 
     # Start from checkpoint
-    if cfg.TRAIN.start_epoch > 0:
+    #if cfg.TRAIN.start_epoch > 0:
+    if cfg.TRAIN.start_epoch != 0:
         cfg.MODEL.weights_encoder = os.path.join(
-            cfg.DIR, 'encoder_epoch_{}.pth'.format(cfg.TRAIN.start_epoch))
+            #cfg.DIR, 'encoder_epoch_{}.pth'.format(cfg.TRAIN.start_epoch))
+            cfg.DIR, 'encoder_epoch_best.pth')
         cfg.MODEL.weights_decoder = os.path.join(
-            cfg.DIR, 'decoder_epoch_{}.pth'.format(cfg.TRAIN.start_epoch))
+            #cfg.DIR, 'decoder_epoch_{}.pth'.format(cfg.TRAIN.start_epoch))
+            cfg.DIR, 'decoder_epoch_best.pth')
         assert os.path.exists(cfg.MODEL.weights_encoder) and \
             os.path.exists(cfg.MODEL.weights_decoder), "checkpoint does not exitst!"
 
@@ -266,6 +304,7 @@ if __name__ == '__main__':
     cfg.TRAIN.max_iters = cfg.TRAIN.epoch_iters * cfg.TRAIN.num_epoch
     cfg.TRAIN.running_lr_encoder = cfg.TRAIN.lr_encoder
     cfg.TRAIN.running_lr_decoder = cfg.TRAIN.lr_decoder
+    cfg.TRAIN.type = cfg.TRAIN.type
 
     random.seed(cfg.TRAIN.seed)
     torch.manual_seed(cfg.TRAIN.seed)

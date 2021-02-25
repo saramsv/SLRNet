@@ -102,6 +102,7 @@ def evaluate(segmentation_module, loader, cfg, gpu):
     print('[Eval Summary]:')
     print('Mean IoU: {:.4f}, Accuracy: {:.2f}%, Inference Time: {:.4f}s'
           .format(iou.mean(), acc_meter.average()*100, time_meter.average()))
+    return acc_meter.average()*100
 
 
 def main(cfg, gpu):
@@ -120,8 +121,7 @@ def main(cfg, gpu):
         use_softmax=True)
 
     crit = nn.NLLLoss(ignore_index=-1)
-
-    segmentation_module = SegmentationModule(net_encoder, net_decoder, crit)
+    segmentation_module = SegmentationModule(net_encoder, net_decoder, crit, cfg.TRAIN.batch_size_per_gpu, cfg.TRAIN.type)
 
     # Dataset and Loader
     dataset_val = ValDataset(
@@ -139,9 +139,9 @@ def main(cfg, gpu):
     segmentation_module.cuda()
 
     # Main loop
-    evaluate(segmentation_module, loader_val, cfg, gpu)
-
     print('Evaluation Done!')
+    return evaluate(segmentation_module, loader_val, cfg, gpu)
+
 
 
 if __name__ == '__main__':

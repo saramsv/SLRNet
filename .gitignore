@@ -1,9 +1,25 @@
 *.pyc
+*.JPG
+*.jpg
+*.png
 
 ckpt/
 vis/
 log/
+data/
+config/
+tmp_results/
+res
+core*
+new_train_annotations/
+new_train_annotations_colored/
+new_train_noBack_annotations/
+new_train_noBack_annotations_colored/
+new_val_annotations/
+new_val_annotations_colored/
+new_val_noBack_annotations/
 pretrained/
+tmp_results/
 
 .ipynb_checkpoints
 
