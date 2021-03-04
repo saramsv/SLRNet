@@ -88,8 +88,8 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg): #, su
             history['train']['loss'].append(loss.data.item())
             history['train']['acc'].append(acc.data.item())
 
-        print(torch.cuda.memory_summary(device=None, abbreviated=False))
-        sys.stdout.flush()
+        #print(torch.cuda.memory_summary(device=None, abbreviated=False))
+        #sys.stdout.flush()
 
 
         ## Added them because of the cuda out of memory error
@@ -258,9 +258,11 @@ def main(cfg, gpus):
 
     if cfg.TRAIN.sup == True:
         if len(loader_sup_train) < len(loader_train):
-            iterator_train = iter(zip(cycle(loader_sup_train), loader_train))
+            #iterator_train = iter(zip(cycle(loader_sup_train), loader_train))
+            iterator_train = iter(zip(loader_sup_train, loader_train))
         else:
-            iterator_train = iter(zip(loader_sup_train, cycle(loader_train)))
+            #iterator_train = iter(zip(loader_sup_train, cycle(loader_train)))
+            iterator_train = iter(zip(loader_sup_train, loader_train))
 
     # load nets into gpu
     if len(gpus) > 1:
