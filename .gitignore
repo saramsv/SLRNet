@@ -11,6 +11,7 @@ config/
 tmp_results/
 res
 core*
+newly*
 new_train_annotations/
 new_train_annotations_colored/
 new_train_noBack_annotations/

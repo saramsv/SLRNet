@@ -1,5 +1,6 @@
 # System libs
 import os
+import sys
 import time
 # import math
 import random
@@ -15,11 +16,22 @@ from mit_semseg.dataset import TrainDataset, DecomTrainDataset
 from mit_semseg.models import ModelBuilder, SegmentationModule
 from mit_semseg.utils import AverageMeter, parse_devices, setup_logger
 from mit_semseg.lib.nn import UserScatteredDataParallel, user_scattered_collate, patch_replication_callback
-import evaluate
 
+import evaluate
+from itertools import cycle
+import distribution
+from pytorch_memlab import MemReporter
+ 
 
 # train one epoch
-def train(segmentation_module, iterator, optimizers, history, epoch, cfg):
+def cal_loss(segmentation_module, batch_data):
+    # forward pass
+    loss, acc = segmentation_module(batch_data) #, sup_batch_data)
+    loss = loss.mean()
+    acc = acc.mean()
+    return loss, acc
+
+def train(segmentation_module, iterator, optimizers, history, epoch, cfg): #, sup_iterator=None):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     ave_total_loss = AverageMeter()
@@ -32,6 +44,9 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg):
     for i in range(cfg.TRAIN.epoch_iters):
         # load a batch of data
         batch_data = next(iterator)
+        #sup_batch_data = None
+        #if sup_iterator !=None:
+        #    sup_batch_data = next(sup_iterator)
         data_time.update(time.time() - tic)
         segmentation_module.zero_grad()
 
@@ -40,7 +55,8 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg):
         adjust_learning_rate(optimizers, cur_iter, cfg)
 
         # forward pass
-        loss, acc = segmentation_module(batch_data)
+        #loss, acc = cal_loss(segmentation_module, batch_data)
+        loss, acc = segmentation_module(batch_data) #, sup_batch_data)
         loss = loss.mean()
         acc = acc.mean()
 
@@ -71,6 +87,16 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg):
             history['train']['epoch'].append(fractional_epoch)
             history['train']['loss'].append(loss.data.item())
             history['train']['acc'].append(acc.data.item())
+
+        print(torch.cuda.memory_summary(device=None, abbreviated=False))
+        sys.stdout.flush()
+
+
+        ## Added them because of the cuda out of memory error
+        #reporter = MemReporter()
+        #reporter.report()
+        del loss
+        torch.cuda.empty_cache()
 
 
 def checkpoint(nets, history, cfg, epoch, is_best):
@@ -161,11 +187,19 @@ def main(cfg, gpus):
         num_class=cfg.DATASET.num_class,
         weights=cfg.MODEL.weights_decoder)
 
-    nSamples = [611, 648, 754, 1169, 591, 429] #, 287]
-    normedWeights = [1 - (x / sum(nSamples)) for x in nSamples]
+    #nSamples = [611, 648, 754, 1169, 591, 429] #, 287]
+    '''
+    train_annotations_colored_list = distribution.get_paths(os.path.join(cfg.DATASET.root_dataset, cfg.DATASET.list_train))
+    if cfg.TRAIN.sup == True:
+        train_annotations_colored_list.extend(distribution.get_paths(os.path.join(cfg.DATASET.root_dataset, cfg.DATASET.list_sup_train)))
+    # nSamples = distribution.main(train_annotations_colored_list)[1:]
+    nSamples = distribution.main(train_annotations_colored_list, bg=False)
+    normedWeights = [1 - x for x in nSamples]#[1 - (x / sum(nSamples)) for x in nSamples]
     normedWeights = torch.FloatTensor(normedWeights).cuda()
 
     crit = nn.NLLLoss(ignore_index=-1, weight=normedWeights) 
+    '''
+    crit = nn.NLLLoss(ignore_index=-1) 
 
     if cfg.MODEL.arch_decoder.endswith('deepsup'):
         segmentation_module = SegmentationModule(
@@ -173,6 +207,26 @@ def main(cfg, gpus):
     else:
         segmentation_module = SegmentationModule(
             net_encoder, net_decoder, crit, cfg.TRAIN.batch_size, cfg.TRAIN.type)
+
+    # Supervised dataset and Loader
+    if cfg.TRAIN.sup == True:
+        dataset_sup_train = TrainDataset(
+            cfg.DATASET.root_dataset,
+            cfg.DATASET.list_sup_train,
+            cfg.DATASET,
+            batch_per_gpu=cfg.TRAIN.batch_size_per_gpu)
+
+        loader_sup_train = torch.utils.data.DataLoader(
+            dataset_sup_train,
+            batch_size=len(gpus),  # we have modified data_parallel
+            shuffle=False,  # we do not use this param
+            collate_fn=user_scattered_collate,
+            num_workers=cfg.TRAIN.workers,
+            drop_last=True,
+            pin_memory=True)
+
+        # create sup loader iterator
+        iterator_sup_train = iter(loader_sup_train)
 
     # Dataset and Loader
     if cfg.TRAIN.type == 'seq':
@@ -196,10 +250,17 @@ def main(cfg, gpus):
         num_workers=cfg.TRAIN.workers,
         drop_last=True,
         pin_memory=True)
+
     print('1 Epoch = {} iters'.format(cfg.TRAIN.epoch_iters))
 
     # create loader iterator
     iterator_train = iter(loader_train)
+
+    if cfg.TRAIN.sup == True:
+        if len(loader_sup_train) < len(loader_train):
+            iterator_train = iter(zip(cycle(loader_sup_train), loader_train))
+        else:
+            iterator_train = iter(zip(loader_sup_train, cycle(loader_train)))
 
     # load nets into gpu
     if len(gpus) > 1:
@@ -217,25 +278,28 @@ def main(cfg, gpus):
     # Main loop
     history = {'train': {'epoch': [], 'loss': [], 'acc': []}}
     best_acc = 0
+    best_IoU = 0
     for epoch in range(cfg.TRAIN.start_epoch, cfg.TRAIN.num_epoch):
-        train(segmentation_module, iterator_train, optimizers, history, epoch+1, cfg)
+        train(segmentation_module, iterator_train, optimizers, history, epoch+1, cfg) #, iterator_sup_train) 
         
         #checkpoint(nets, history, cfg, epoch+1, False)
-        #if epoch % 1 == 0: # do the evaluation on the validate data every other epoch
         if epoch > 0:
             cfg.MODEL.weights_encoder = os.path.join(
                 cfg.DIR, 'encoder_' + cfg.VAL.checkpoint)
             cfg.MODEL.weights_decoder = os.path.join(
                 cfg.DIR, 'decoder_' + cfg.VAL.checkpoint)
-        current_acc = evaluate.main(cfg, 0)
-        
+        #if epoch % 2 == 0: # do the evaluation on the validate data every other epoch
+        with torch.no_grad():
+            current_IoU, current_acc = evaluate.main(cfg, 0)
+    
         is_best = current_acc > best_acc
         best_acc = max(current_acc, best_acc)
-        #if is_best:
-        print("current best acc:{}".format(best_acc))
-        
+        best_IoU = max(current_IoU, best_IoU)
         # checkpointing
         checkpoint(nets, history, cfg, epoch+1, is_best)
+        #if is_best:
+        print("Epoch: {}, Current best IoU: {}, current best acc: {}".format(epoch+1, best_IoU, best_acc))
+        
 
     print('Training Done!')
 

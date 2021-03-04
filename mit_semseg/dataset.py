@@ -106,6 +106,13 @@ class DecomTrainDataset(BaseDataset):
                 break
         return batch_records
 
+    def _correct_label(self, label):
+        uniqs = np.unique(label, return_counts=True)
+        for ind, classid in enumerate(uniqs[0]):
+            if np.where(label == classid)[0].shape < 0.1 * uniqs[1].max():
+                label[np.where(label == classid)] = 0
+        return label
+
     def __getitem__(self, index):
         # NOTE: random shuffle for the first time. shuffle in __init__ is useless
         if not self.if_shuffled:
@@ -162,6 +169,9 @@ class DecomTrainDataset(BaseDataset):
 
                 img = Image.open(image_path).convert('RGB')
                 segm = Image.open(segm_path).convert('L')
+                segm = np.asarray(segm, dtype=np.int32)
+                segm = self._correct_label(segm)
+                segm = Image.fromarray(segm, mode='L')
                 if img.size[0] != segm.size[0] and  abs(img.size[0] - segm.size[0]) < 5:
                     img = img.resize((segm.size[0], img.size[1]), Image.ANTIALIAS)
                 assert(segm.mode == "L")

@@ -102,7 +102,7 @@ def evaluate(segmentation_module, loader, cfg, gpu):
     print('[Eval Summary]:')
     print('Mean IoU: {:.4f}, Accuracy: {:.2f}%, Inference Time: {:.4f}s'
           .format(iou.mean(), acc_meter.average()*100, time_meter.average()))
-    return acc_meter.average()*100
+    return iou.mean(), acc_meter.average()*100
 
 
 def main(cfg, gpu):
@@ -176,8 +176,8 @@ if __name__ == '__main__':
     # cfg.freeze()
 
     logger = setup_logger(distributed_rank=0)   # TODO
-    logger.info("Loaded configuration file {}".format(args.cfg))
-    logger.info("Running with config:\n{}".format(cfg))
+    #logger.info("Loaded configuration file {}".format(args.cfg))
+    #logger.info("Running with config:\n{}".format(cfg))
 
     # absolute paths of model weights
     cfg.MODEL.weights_encoder = os.path.join(
