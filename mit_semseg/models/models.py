@@ -68,7 +68,7 @@ class SegmentationModule(SegmentationModuleBase):
 
             #loss = self.crit(pred, feed_dict['seg_label'])
             if sup_feed_dict != None:
-                loss = self.crit(sup_pred, sup_feed_dict['seg_label']) #this would our sup loss
+                loss = self.crit(sup_pred, sup_feed_dict['seg_label']) #this would be our sup loss
             #print("loss: {} and its type:{}".format(loss, type(loss)))
             if self.training_type == 'seq':
                 l = len(seq_feed_dict['seg_label'])
@@ -119,8 +119,8 @@ class SegmentationModule(SegmentationModuleBase):
                 elif len(unsup_weighted_losses) == 1:
                     unsup_loss = unsup_weighted_losses[0]
                 #loss = loss.add(unsup_loss)
-                loss += unsup_loss.item()
-                del weighted_losses, unsup_weighted_losses, losses, weights, unsup_loss
+                loss += unsup_loss
+                #del weighted_losses, unsup_weighted_losses, losses, weights, unsup_loss
 
 
 

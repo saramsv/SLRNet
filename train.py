@@ -230,13 +230,6 @@ def main(cfg, gpus):
             cfg.DATASET,
             batch_per_gpu=cfg.TRAIN.batch_size_per_gpu,
             ignoreBg = cfg.TRAIN.ignoreBg)
-    else:
-        dataset_seq_train = TrainDataset(
-            cfg.DATASET.root_dataset,
-            cfg.DATASET.list_train,
-            cfg.DATASET,
-            batch_per_gpu=cfg.TRAIN.batch_size_per_gpu,
-            ignoreBg = cfg.TRAIN.ignoreBg)
 
     loader_seq_train = torch.utils.data.DataLoader(
         dataset_seq_train,
@@ -254,12 +247,8 @@ def main(cfg, gpus):
 
     cfg['TRAIN']['epoch_iters'] = max(dataset_sup_train.num_sample, dataset_seq_train.num_sample) // cfg['TRAIN']['batch_size_per_gpu']
     print(cfg['TRAIN']['epoch_iters'])
-
     if cfg.TRAIN.sup == True:
-        if len(loader_sup_train) < len(loader_seq_train):
-            iterator_train = iter(zip(loader_sup_train, loader_seq_train))
-        else:
-            iterator_train = iter(zip(loader_sup_train, loader_seq_train))
+        iterator_train = iter(zip(loader_sup_train, loader_seq_train))
     # load nets into gpu
     if len(gpus) > 1:
         segmentation_module = UserScatteredDataParallel(
