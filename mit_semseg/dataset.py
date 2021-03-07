@@ -57,9 +57,12 @@ class BaseDataset(torch.utils.data.Dataset):
         img = self.normalize(torch.from_numpy(img.copy()))
         return img
 
-    def segm_transform(self, segm):
-        # to tensor, -1 to 149
-        segm = torch.from_numpy(np.array(segm)).long() - 1
+    def segm_transform(self, segm, ignoreBg=True):
+        if ignoreBg:
+            # to tensor, -1 to 149
+            segm = torch.from_numpy(np.array(segm)).long() - 1
+        else:
+            segm = torch.from_numpy(np.array(segm)).long()
         return segm
 
     # Round x to the nearest multiple of p and x' >= x
@@ -67,12 +70,14 @@ class BaseDataset(torch.utils.data.Dataset):
         return ((x - 1) // p + 1) * p
 
 class DecomTrainDataset(BaseDataset):
-    def __init__(self, root_dataset, odgt, opt, batch_per_gpu=1, **kwargs):
+    def __init__(self, root_dataset, odgt, opt, batch_per_gpu=1, ignoreBg=True, **kwargs):
         super(DecomTrainDataset, self).__init__(odgt, opt, **kwargs)
         self.root_dataset = root_dataset
         # down sampling rate of segm labe
         self.segm_downsampling_rate = opt.segm_downsampling_rate
         self.batch_per_gpu = batch_per_gpu
+
+        self.ignoreBg = ignoreBg
 
         # classify images into two classes: 1. h > w and 2. h <= w
         self.batch_record_list = [[], []]
@@ -202,7 +207,7 @@ class DecomTrainDataset(BaseDataset):
                 img = self.img_transform(img)
 
                 # segm transform, to torch long tensor HxW
-                segm = self.segm_transform(segm)
+                segm = self.segm_transform(segm, ignoreBg=self.ignoreBg)
 
                 # put into batch arrays
                 batch_images[i*seq_len + j][:, :img.shape[1], :img.shape[2]] = img
@@ -218,12 +223,14 @@ class DecomTrainDataset(BaseDataset):
         #return self.num_sampleclass
 
 class TrainDataset(BaseDataset):
-    def __init__(self, root_dataset, odgt, opt, batch_per_gpu=1, **kwargs):
+    def __init__(self, root_dataset, odgt, opt, batch_per_gpu=1, ignoreBg=True, **kwargs):
         super(TrainDataset, self).__init__(odgt, opt, **kwargs)
         self.root_dataset = root_dataset
         # down sampling rate of segm labe
         self.segm_downsampling_rate = opt.segm_downsampling_rate
         self.batch_per_gpu = batch_per_gpu
+
+        self.ignoreBg = ignoreBg
 
         # classify images into two classes: 1. h > w and 2. h <= w
         self.batch_record_list = [[], []]
@@ -341,7 +348,7 @@ class TrainDataset(BaseDataset):
             img = self.img_transform(img)
 
             # segm transform, to torch long tensor HxW
-            segm = self.segm_transform(segm)
+            segm = self.segm_transform(segm, ignoreBg=self.ignoreBg)
 
             # put into batch arrays
             batch_images[i][:, :img.shape[1], :img.shape[2]] = img
@@ -358,9 +365,10 @@ class TrainDataset(BaseDataset):
 
 
 class ValDataset(BaseDataset):
-    def __init__(self, root_dataset, odgt, opt, **kwargs):
+    def __init__(self, root_dataset, odgt, opt, ignoreBg=True, **kwargs):
         super(ValDataset, self).__init__(odgt, opt, **kwargs)
         self.root_dataset = root_dataset
+        self.ignoreBg = ignoreBg
 
     def __getitem__(self, index):
         this_record = self.list_sample[index]
@@ -398,7 +406,7 @@ class ValDataset(BaseDataset):
             img_resized_list.append(img_resized)
 
         # segm transform, to torch long tensor HxW
-        segm = self.segm_transform(segm)
+        segm = self.segm_transform(segm, ignoreBg=self.ignoreBg)
         batch_segms = torch.unsqueeze(segm, 0)
 
         output = dict()

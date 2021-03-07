@@ -43,7 +43,8 @@ def visualize_result(img, pred, index=None):
     if index is not None:
         pred = pred.copy()
         pred[pred != index] = -1
-        print(f'{names[index+1]}:')
+        #print(f'{names[index+1]}:')
+        print(f'{names[index]}:')
 
     # colorize prediction
     pred_color = colorEncode(pred, colors).astype(numpy.uint8)
@@ -101,10 +102,11 @@ def get_color_palette(pred, bar_height):
 
     for idx in np.argsort(counts)[::-1]:
         color_index = uniques[idx]
-        name = names[color_index + 1]
+        name = names[color_index ] # WAS + 1]
         ratio = counts[idx] / pixs * 100
         if ratio > 0.1:
-            print("{}  {}: {:.2f}% {}".format(color_index+1, name, ratio, colors[color_index]))
+            #WAS print("{}  {}: {:.2f}% {}".format(color_index+1, name, ratio, colors[color_index]))
+            print("{}  {}: {:.2f}% {}".format(color_index, name, ratio, colors[color_index]))
             img = cv2.rectangle(img, (0,top_left_y), (250,bottom_right_y), 
                        (int(colors[color_index][0]),int(colors[color_index][1]),int(colors[color_index][2])), -1)
             img = cv2.putText(img, "{}: {:.3f}%".format(name, ratio), (0,top_left_y+20), 5, 1, (255,255,255), 2, cv2.LINE_AA)
@@ -165,7 +167,7 @@ if __name__ == '__main__':
         for row in reader:
             names[int(row[0])] = row[5].split(";")[0]
     '''
-    names = {1:'foot', 2:'hand', 3:'arm', 4:'leg', 5:'torso', 6:'head'}
+    names = {0:'bg', 1:'foot', 2:'hand', 3:'arm', 4:'leg', 5:'torso', 6:'head'}
     random.seed(0)
     num_classes = 7
     colors = [[random.randint(0,255), random.randint(0,255), random.randint(0,255)] for _ in range(num_classes)]

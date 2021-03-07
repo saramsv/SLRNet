@@ -9,6 +9,8 @@ log/
 data/
 config/
 tmp_results/
+results_for*
+results_for_hrNet
 res
 core*
 newly*

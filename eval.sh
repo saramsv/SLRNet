@@ -1,4 +1,6 @@
-python3 evaluate.py --cfg config/bodypart_eval_balancedall_seq_with_one_ann_weighted_hrnetv2.yaml
+
+python3 evaluate.py --cfg $1
+#python3 evaluate.py --cfg config/bodypart_eval_balanced_seqs_7class_hrnetv2.yaml
 #for i in $(seq 2 2);
 #do
 #	echo seq$i

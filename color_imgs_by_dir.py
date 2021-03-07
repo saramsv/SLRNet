@@ -16,7 +16,7 @@ num_classes = 7
 colors = [(random.randint(0, 255), random.randint(
     0, 255), random.randint(0, 255)) for _ in range(num_classes)]
 #colors = [(0, 0, 128), (0, 128, 0), (0, 128, 128), (128, 0, 0), (128, 0, 128), (128, 128, 0)]
-
+colors[0] = (0,0,0)
 target_dir_name = dir_name.strip("/") + "_colored"
 if not os.path.isdir(target_dir_name):
     os.mkdir(target_dir_name)

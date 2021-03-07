@@ -76,6 +76,7 @@ _C.TRAIN.disp_iter = 20
 _C.TRAIN.seed = 304
 _C.TRAIN.type = 'seq'
 _C.TRAIN.sup = True
+_C.TRAIN.ignoreBg = True
 
 # -----------------------------------------------------------------------------
 # Validation

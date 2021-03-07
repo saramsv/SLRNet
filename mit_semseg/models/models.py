@@ -30,19 +30,20 @@ class SegmentationModule(SegmentationModuleBase):
         self.training_type = training_type
 
     def forward(self, feed_dict, *, segSize=None):
-        # added the following for training on 1 gpu
-        # if the dataset is loaded as a list, this will
-        # raise a TypeError while trying to access it as a dictionary.
         sup_feed_dict, seq_feed_dict, sup_pred, seq_pred = None, None, None, None
         if isinstance(feed_dict, tuple):
-            seq_feed_dict = feed_dict[1] # get the data for the second iterator that has the seq info in it
             sup_feed_dict = feed_dict[0]
+            seq_feed_dict = feed_dict[1] # get the data for the second iterator that has the seq info in it
             if torch.cuda.is_available():
                 sup_feed_dict = sup_feed_dict[0]
                 sup_feed_dict['img_data'] = sup_feed_dict['img_data'].cuda()
                 sup_feed_dict['seg_label'] = sup_feed_dict['seg_label'].cuda()
         else:
             seq_feed_dict = feed_dict
+
+        # added the following for training on 1 gpu
+        # if the dataset is loaded as a list, this will
+        # raise a TypeError while trying to access it as a dictionary.
         if type(seq_feed_dict) is list:
             seq_feed_dict = seq_feed_dict[0]
             # also, convert to torch.cuda.FloatTensor
@@ -51,14 +52,14 @@ class SegmentationModule(SegmentationModuleBase):
                 seq_feed_dict['seg_label'] = seq_feed_dict['seg_label'].cuda()
             else:
                 raise RunTimeError('Cannot convert torch.Floattensor into torch.cuda.FloatTensor')
-        # added above
         
         # training
         if segSize is None:
             if self.deep_sup_scale is not None: # use deep supervision technique
                 (pred, pred_deepsup) = self.decoder(self.encoder(seq_feed_dict['img_data'], return_feature_maps=True))
                 if sup_feed_dict != None:
-                    (sup_pred, sup_pred_deepsup) = self.decoder(self.encoder(sup_feed_dict['img_data'], return_feature_maps=True))
+                    (sup_pred, sup_pred_deepsup) = self.decoder(self.encoder(sup_feed_dict['img_data'],
+                        return_feature_maps=True))
             else:
                 pred = self.decoder(self.encoder(seq_feed_dict['img_data'], return_feature_maps=True))
                 if sup_feed_dict != None:
@@ -72,19 +73,28 @@ class SegmentationModule(SegmentationModuleBase):
             if self.training_type == 'seq':
                 l = len(seq_feed_dict['seg_label'])
                 seq_len = l / self.batch_size 
+
+                #unsup_index = [x for x in range(pred_deepsup.shape[0]) if x % seq_len != 0]
+                #pred_deepsup = [pred_deepsup[unsup_index,:,:,:] for i in range(pred_deepsup.shape[0])][0]
+
                 class_based_pred = pred.argmax(dim=1)
                 # loss for each individual image
-                losses = [self.crit(pred[i,:,:,:].unsqueeze(0), seq_feed_dict['seg_label'][i,:,:].unsqueeze(0)) for i in range(l)]
+                losses = [self.crit(pred[i,:,:,:].unsqueeze(0), seq_feed_dict['seg_label'][i,:,:].unsqueeze(0)) 
+                        for i in range(l)]
                 ##this one is a test
-                #used the (number of equal pixels in both pred and gt label)/(total number pixel in the image) as the weight = similarity level
+                """
+                used the (number of equal pixels in both pred and gt label)/(total number pixel in the image) 
+                as the weight = similarity level
+                """
                 weights = [] 
                 # to change the weigh to one for images with actual gt labels
                 ind = 0 # the index of the image in the sequence with gt
                 for i in range(len(losses)):
                     if i % seq_len == 0:
                         ind = i
-                    weights.append(torch.sum(pred.argmax(dim=1)[i,:,:] == pred.argmax(dim=1)[ind,:,:]).item()/(seq_feed_dict['seg_label'][ind,:,:].shape[0] *
-                                                                           seq_feed_dict['seg_label'][ind,:,:].shape[1]))
+                    weights.append(torch.sum(pred.argmax(dim=1)[i,:,:] == pred.argmax(dim=1)[ind,:,:]).item()\
+                            /(seq_feed_dict['seg_label'][ind,:,:].shape[0] *\
+                            seq_feed_dict['seg_label'][ind,:,:].shape[1]))
                 #print(f"losses: {losses}")
                 #print(f"weights: {weights}")
                 weighted_losses = [a*b for a,b in zip(losses, weights)]
@@ -118,7 +128,7 @@ class SegmentationModule(SegmentationModuleBase):
             #print("new loss: {} and its type:{}".format(loss, type(loss)))
 
             if self.deep_sup_scale is not None:
-                loss_deepsup = self.crit(pred_deepsup, sup_feed_dict['seg_label'])
+                loss_deepsup = self.crit(sup_pred_deepsup, sup_feed_dict['seg_label'])
                 loss = loss + loss_deepsup * self.deep_sup_scale
 
             if sup_feed_dict != None:

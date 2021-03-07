@@ -24,13 +24,6 @@ from pytorch_memlab import MemReporter
  
 
 # train one epoch
-def cal_loss(segmentation_module, batch_data):
-    # forward pass
-    loss, acc = segmentation_module(batch_data) #, sup_batch_data)
-    loss = loss.mean()
-    acc = acc.mean()
-    return loss, acc
-
 def train(segmentation_module, iterator, optimizers, history, epoch, cfg): #, sup_iterator=None):
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -41,6 +34,7 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg): #, su
 
     # main loop
     tic = time.time()
+    print("iterations: {}".format(cfg.TRAIN.epoch_iters))
     for i in range(cfg.TRAIN.epoch_iters):
         # load a batch of data
         batch_data = next(iterator)
@@ -55,8 +49,7 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg): #, su
         adjust_learning_rate(optimizers, cur_iter, cfg)
 
         # forward pass
-        #loss, acc = cal_loss(segmentation_module, batch_data)
-        loss, acc = segmentation_module(batch_data) #, sup_batch_data)
+        loss, acc = segmentation_module(batch_data)
         loss = loss.mean()
         acc = acc.mean()
 
@@ -95,8 +88,8 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg): #, su
         ## Added them because of the cuda out of memory error
         #reporter = MemReporter()
         #reporter.report()
-        del loss
-        torch.cuda.empty_cache()
+        #del loss
+        #torch.cuda.empty_cache()
 
 
 def checkpoint(nets, history, cfg, epoch, is_best):
@@ -214,7 +207,8 @@ def main(cfg, gpus):
             cfg.DATASET.root_dataset,
             cfg.DATASET.list_sup_train,
             cfg.DATASET,
-            batch_per_gpu=cfg.TRAIN.batch_size_per_gpu)
+            batch_per_gpu=cfg.TRAIN.batch_size_per_gpu,
+            ignoreBg = cfg.TRAIN.ignoreBg)
 
         loader_sup_train = torch.utils.data.DataLoader(
             dataset_sup_train,
@@ -230,20 +224,22 @@ def main(cfg, gpus):
 
     # Dataset and Loader
     if cfg.TRAIN.type == 'seq':
-        dataset_train = DecomTrainDataset(
+        dataset_seq_train = DecomTrainDataset(
             cfg.DATASET.root_dataset,
             cfg.DATASET.list_train,
             cfg.DATASET,
-            batch_per_gpu=cfg.TRAIN.batch_size_per_gpu)
+            batch_per_gpu=cfg.TRAIN.batch_size_per_gpu,
+            ignoreBg = cfg.TRAIN.ignoreBg)
     else:
-        dataset_train = TrainDataset(
+        dataset_seq_train = TrainDataset(
             cfg.DATASET.root_dataset,
             cfg.DATASET.list_train,
             cfg.DATASET,
-            batch_per_gpu=cfg.TRAIN.batch_size_per_gpu)
+            batch_per_gpu=cfg.TRAIN.batch_size_per_gpu,
+            ignoreBg = cfg.TRAIN.ignoreBg)
 
-    loader_train = torch.utils.data.DataLoader(
-        dataset_train,
+    loader_seq_train = torch.utils.data.DataLoader(
+        dataset_seq_train,
         batch_size=len(gpus),  # we have modified data_parallel
         shuffle=False,  # we do not use this param
         collate_fn=user_scattered_collate,
@@ -254,16 +250,16 @@ def main(cfg, gpus):
     print('1 Epoch = {} iters'.format(cfg.TRAIN.epoch_iters))
 
     # create loader iterator
-    iterator_train = iter(loader_train)
+    iterator_train = iter(loader_seq_train)
+
+    cfg['TRAIN']['epoch_iters'] = max(dataset_sup_train.num_sample, dataset_seq_train.num_sample) // cfg['TRAIN']['batch_size_per_gpu']
+    print(cfg['TRAIN']['epoch_iters'])
 
     if cfg.TRAIN.sup == True:
-        if len(loader_sup_train) < len(loader_train):
-            #iterator_train = iter(zip(cycle(loader_sup_train), loader_train))
-            iterator_train = iter(zip(loader_sup_train, loader_train))
+        if len(loader_sup_train) < len(loader_seq_train):
+            iterator_train = iter(zip(loader_sup_train, loader_seq_train))
         else:
-            #iterator_train = iter(zip(loader_sup_train, cycle(loader_train)))
-            iterator_train = iter(zip(loader_sup_train, loader_train))
-
+            iterator_train = iter(zip(loader_sup_train, loader_seq_train))
     # load nets into gpu
     if len(gpus) > 1:
         segmentation_module = UserScatteredDataParallel(
