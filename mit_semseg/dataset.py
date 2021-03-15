@@ -111,13 +111,6 @@ class DecomTrainDataset(BaseDataset):
                 break
         return batch_records
 
-    def _correct_label(self, label):
-        uniqs = np.unique(label, return_counts=True)
-        for ind, classid in enumerate(uniqs[0]):
-            if np.where(label == classid)[0].shape < 0.1 * uniqs[1].max():
-                label[np.where(label == classid)] = 0
-        return label
-
     def __getitem__(self, index):
         # NOTE: random shuffle for the first time. shuffle in __init__ is useless
         if not self.if_shuffled:
@@ -138,15 +131,16 @@ class DecomTrainDataset(BaseDataset):
 
         # calculate the BATCH's height and width
         # since we concat more than one samples, the batch's h and w shall be larger than EACH sample
-        batch_widths = np.zeros(self.batch_per_gpu, np.int32)
-        batch_heights = np.zeros(self.batch_per_gpu, np.int32)
+        batch_widths = np.zeros(self.batch_per_gpu * seq_len, np.int32)
+        batch_heights = np.zeros(self.batch_per_gpu * seq_len, np.int32)
         for i in range(self.batch_per_gpu):
-            img_height, img_width = batch_records[i]['height'], batch_records[i]['width']
-            this_scale = min(
-                this_short_size / min(img_height, img_width), \
-                self.imgMaxSize / max(img_height, img_width))
-            batch_widths[i] = img_width * this_scale
-            batch_heights[i] = img_height * this_scale
+            for j in range(seq_len):
+                img_height, img_width = batch_records[i]['height'], batch_records[i]['width'] #because for each seq we have one with and height
+                this_scale = min(
+                    this_short_size / min(img_height, img_width), \
+                    self.imgMaxSize / max(img_height, img_width))
+                batch_widths[i*seq_len + j] = img_width * this_scale
+                batch_heights[i*seq_len + j] = img_height * this_scale
 
         # Here we must pad both input image and segmentation map to size h' and w' so that p | h' and p | w'
         batch_width = np.max(batch_widths)
@@ -172,11 +166,9 @@ class DecomTrainDataset(BaseDataset):
                 image_path = os.path.join(self.root_dataset, all_img_paths[j])
                 segm_path = os.path.join(self.root_dataset, all_segm_paths[j])
 
+
                 img = Image.open(image_path).convert('RGB')
                 segm = Image.open(segm_path).convert('L')
-                segm = np.asarray(segm, dtype=np.int32)
-                segm = self._correct_label(segm)
-                segm = Image.fromarray(segm, mode='L')
                 if img.size[0] != segm.size[0] and  abs(img.size[0] - segm.size[0]) < 5:
                     img = img.resize((segm.size[0], img.size[1]), Image.ANTIALIAS)
                 assert(segm.mode == "L")
@@ -189,8 +181,8 @@ class DecomTrainDataset(BaseDataset):
                     segm = segm.transpose(Image.FLIP_LEFT_RIGHT)
 
                 # note that each sample within a mini batch has different scale param
-                img = imresize(img, (batch_widths[i], batch_heights[i]), interp='bilinear')
-                segm = imresize(segm, (batch_widths[i], batch_heights[i]), interp='nearest')
+                img = imresize(img, (batch_widths[i*seq_len + j ], batch_heights[i * seq_len + j]), interp='bilinear')
+                segm = imresize(segm, (batch_widths[i* seq_len + j], batch_heights[i * seq_len + j]), interp='nearest')
 
                 # further downsample seg label, need to avoid seg label misalignment
                 segm_rounded_width = self.round2nearest_multiple(segm.size[0], self.segm_downsampling_rate)

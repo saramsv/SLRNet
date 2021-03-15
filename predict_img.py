@@ -172,6 +172,7 @@ if __name__ == '__main__':
     num_classes = 7
     colors = [[random.randint(0,255), random.randint(0,255), random.randint(0,255)] for _ in range(num_classes)]
     colors = np.array(colors, dtype='uint8')
+    print(colors)
     
     # Network Builders
     '''
@@ -211,11 +212,11 @@ if __name__ == '__main__':
     # predict
     img_original, singleton_batch, output_size = process_img(args.img)
     pred = predict_img(segmentation_module, singleton_batch, output_size)
-    print(type(img_original))
     pred_color, org_pred_split = visualize_result(img_original, pred)
     
     # color_palette
     color_palette = get_color_palette(pred, org_pred_split.shape[0])
+
     
     dst = transparent_overlays(img_original, pred_color, alpha=args.alpha)
     pred_color_palette = numpy.concatenate((color_palette, pred_color), axis=1)
@@ -223,11 +224,11 @@ if __name__ == '__main__':
     pred_color_palette_all = numpy.concatenate((org_pred_split, color_palette), axis=1)
     
     img_name = args.img.split('/')[-1].replace('.JPG','') 
-    cv2.imwrite("{}/{}_pred_color.png".format(args.save, img_name), cv2.cvtColor(pred_color, cv2.COLOR_RGB2BGR))
-    cv2.imwrite("{}/{}_org_pred_split.png".format(args.save, img_name), cv2.cvtColor(org_pred_split, cv2.COLOR_RGB2BGR))
-    cv2.imwrite("{}/{}_dst.png".format(args.save, img_name), cv2.cvtColor(dst, cv2.COLOR_RGB2BGR))
-    cv2.imwrite("{}/{}_pred_color_palette.png".format(args.save, img_name), cv2.cvtColor(pred_color_palette, cv2.COLOR_RGB2BGR))
-    cv2.imwrite("{}/{}_pred_color_palette_dst.png".format(args.save, img_name), cv2.cvtColor(pred_color_palette_dst, cv2.COLOR_RGB2BGR))
-    cv2.imwrite("{}/{}_pred_color_palette_all.png".format(args.save, img_name), cv2.cvtColor(pred_color_palette_all, cv2.COLOR_RGB2BGR))
+    cv2.imwrite("{}/{}_pred_color.png".format(args.save, img_name),pred_color) # cv2.cvtColor(pred_color, cv2.COLOR_RGB2BGR))
+    ##cv2.imwrite("{}/{}_org_pred_split.png".format(args.save, img_name), cv2.cvtColor(org_pred_split, cv2.COLOR_RGB2BGR))
+    ##cv2.imwrite("{}/{}_dst.png".format(args.save, img_name), cv2.cvtColor(dst, cv2.COLOR_RGB2BGR))
+    ##cv2.imwrite("{}/{}_pred_color_palette.png".format(args.save, img_name), cv2.cvtColor(pred_color_palette, cv2.COLOR_RGB2BGR))
+    ##cv2.imwrite("{}/{}_pred_color_palette_dst.png".format(args.save, img_name), cv2.cvtColor(pred_color_palette_dst, cv2.COLOR_RGB2BGR))
+    ##cv2.imwrite("{}/{}_pred_color_palette_all.png".format(args.save, img_name), cv2.cvtColor(pred_color_palette_all, cv2.COLOR_RGB2BGR))
     
     # PIL.Image.fromarray(pred_color_palette_dst).show()

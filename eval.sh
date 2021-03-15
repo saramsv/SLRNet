@@ -1,5 +1,14 @@
-
+echo "Val:"
+sed -i 's/0.pth/best.pth/g' $1
 python3 evaluate.py --cfg $1
+
+echo "Test"
+sed -i 's/val.odgt/test.odgt/g' $1
+python3 evaluate.py --cfg $1
+
+sed -i 's/best.pth/0.pth/g' $1
+sed -i 's/test.odgt/val.odgt/g' $1
+
 #python3 evaluate.py --cfg config/bodypart_eval_balanced_seqs_7class_hrnetv2.yaml
 #for i in $(seq 2 2);
 #do

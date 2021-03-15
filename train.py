@@ -49,7 +49,10 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg): #, su
         adjust_learning_rate(optimizers, cur_iter, cfg)
 
         # forward pass
-        loss, acc = segmentation_module(batch_data)
+        #epoch_weight = epoch/cfg.TRAIN.num_epoch
+        epoch_weight = ((epoch - 1) * cfg.TRAIN.epoch_iters + i) / cfg.TRAIN.max_iters #cfg['TRAIN']['max_iters']
+        loss, acc = segmentation_module(batch_data,epoch_weight=epoch_weight)
+        #loss, acc, weights, unsup_weighted_losses, unsup_loss = segmentation_module(batch_data)
         loss = loss.mean()
         acc = acc.mean()
 
@@ -80,6 +83,12 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg): #, su
             history['train']['epoch'].append(fractional_epoch)
             history['train']['loss'].append(loss.data.item())
             history['train']['acc'].append(acc.data.item())
+            '''
+            history['train']['unsup_loss'].append(unsup_loss)
+            history['train']['unsup_weighted_losses'].append(unsup_weighted_losses)
+            history['train']['weights'].append(weights)
+            '''
+
 
         #print(torch.cuda.memory_summary(device=None, abbreviated=False))
         #sys.stdout.flush()
@@ -92,9 +101,19 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg): #, su
         #torch.cuda.empty_cache()
 
 
-def checkpoint(nets, history, cfg, epoch, is_best):
+def checkpoint_best(nets, history, cfg):
     # I am using 0 in the name of the current model
-    print('Saving checkpoints...')
+    print('Saving checkpoints {}/history_epoch_best.pth'.format(cfg.DIR))
+    shutil.copyfile('{}/history_epoch_{}.pth'.format(cfg.DIR, 0), 
+    '{}/history_epoch_best.pth'.format(cfg.DIR))
+    shutil.copyfile('{}/encoder_epoch_{}.pth'.format(cfg.DIR, 0), 
+    '{}/encoder_epoch_best.pth'.format(cfg.DIR))
+    shutil.copyfile('{}/decoder_epoch_{}.pth'.format(cfg.DIR, 0),
+    '{}/decoder_epoch_best.pth'.format(cfg.DIR))
+
+def checkpoint(nets, history, cfg):
+    # I am using 0 in the name of the current model
+    print('Saving checkpoints {}/history_epoch_{}.pth'.format(cfg.DIR, 0))
     (net_encoder, net_decoder, crit) = nets
 
     dict_encoder = net_encoder.state_dict()
@@ -109,13 +128,6 @@ def checkpoint(nets, history, cfg, epoch, is_best):
     torch.save(
         dict_decoder,
         '{}/decoder_epoch_{}.pth'.format(cfg.DIR, 0))
-    if is_best:
-        shutil.copyfile('{}/history_epoch_{}.pth'.format(cfg.DIR, 0), 
-        '{}/history_epoch_best.pth'.format(cfg.DIR))
-        shutil.copyfile('{}/encoder_epoch_{}.pth'.format(cfg.DIR, 0), 
-        '{}/encoder_epoch_best.pth'.format(cfg.DIR))
-        shutil.copyfile('{}/decoder_epoch_{}.pth'.format(cfg.DIR, 0),
-        '{}/decoder_epoch_best.pth'.format(cfg.DIR))
 
 
 def group_weight(module):
@@ -193,7 +205,6 @@ def main(cfg, gpus):
     crit = nn.NLLLoss(ignore_index=-1, weight=normedWeights) 
     '''
     crit = nn.NLLLoss(ignore_index=-1) 
-
     if cfg.MODEL.arch_decoder.endswith('deepsup'):
         segmentation_module = SegmentationModule(
             net_encoder, net_decoder, crit, cfg.TRAIN.batch_size_per_gpu, cfg.TRAIN.type, cfg.TRAIN.deep_sup_scale)
@@ -202,25 +213,23 @@ def main(cfg, gpus):
             net_encoder, net_decoder, crit, cfg.TRAIN.batch_size, cfg.TRAIN.type)
 
     # Supervised dataset and Loader
-    if cfg.TRAIN.sup == True:
-        dataset_sup_train = TrainDataset(
-            cfg.DATASET.root_dataset,
-            cfg.DATASET.list_sup_train,
-            cfg.DATASET,
-            batch_per_gpu=cfg.TRAIN.batch_size_per_gpu,
-            ignoreBg = cfg.TRAIN.ignoreBg)
+    # Lets always have the supervised path and therefore cfg.TRAIN.sup = True
+    #if cfg.TRAIN.sup == True:
+    dataset_sup_train = TrainDataset(
+        cfg.DATASET.root_dataset,
+        cfg.DATASET.list_sup_train,
+        cfg.DATASET,
+        batch_per_gpu=cfg.TRAIN.batch_size_per_gpu,
+        ignoreBg = cfg.TRAIN.ignoreBg)
 
-        loader_sup_train = torch.utils.data.DataLoader(
-            dataset_sup_train,
-            batch_size=len(gpus),  # we have modified data_parallel
-            shuffle=False,  # we do not use this param
-            collate_fn=user_scattered_collate,
-            num_workers=cfg.TRAIN.workers,
-            drop_last=True,
-            pin_memory=True)
-
-        # create sup loader iterator
-        iterator_sup_train = iter(loader_sup_train)
+    loader_sup_train = torch.utils.data.DataLoader(
+        dataset_sup_train,
+        batch_size=len(gpus),  # we have modified data_parallel
+        shuffle=False,  # we do not use this param
+        collate_fn=user_scattered_collate,
+        num_workers=cfg.TRAIN.workers,
+        drop_last=True,
+        pin_memory=True)
 
     # Dataset and Loader
     if cfg.TRAIN.type == 'seq':
@@ -231,24 +240,26 @@ def main(cfg, gpus):
             batch_per_gpu=cfg.TRAIN.batch_size_per_gpu,
             ignoreBg = cfg.TRAIN.ignoreBg)
 
-    loader_seq_train = torch.utils.data.DataLoader(
-        dataset_seq_train,
-        batch_size=len(gpus),  # we have modified data_parallel
-        shuffle=False,  # we do not use this param
-        collate_fn=user_scattered_collate,
-        num_workers=cfg.TRAIN.workers,
-        drop_last=True,
-        pin_memory=True)
+        loader_seq_train = torch.utils.data.DataLoader(
+            dataset_seq_train,
+            batch_size=len(gpus),  # we have modified data_parallel
+            shuffle=False,  # we do not use this param
+            collate_fn=user_scattered_collate,
+            num_workers=cfg.TRAIN.workers,
+            drop_last=True,
+            pin_memory=True)
+
+    cfg.TRAIN.epoch_iters = dataset_sup_train.num_sample // cfg.TRAIN.batch_size_per_gpu
+    cfg.TRAIN.max_iters = cfg.TRAIN.epoch_iters * cfg.TRAIN.num_epoch
+
+    iterator_train = iter(loader_sup_train) #assuming we always have the sup path
+    if cfg.TRAIN.type == 'seq':
+        print('sup: {}, seq: {}, max: {}'.format(dataset_sup_train.num_sample, dataset_seq_train.num_sample, max(dataset_sup_train.num_sample, dataset_seq_train.num_sample)))
+        cfg.TRAIN.epoch_iters = max(dataset_sup_train.num_sample, dataset_seq_train.num_sample) // cfg.TRAIN.batch_size_per_gpu
+        cfg.TRAIN.max_iters = cfg.TRAIN.epoch_iters * cfg.TRAIN.num_epoch
+        iterator_train = iter(zip(loader_sup_train, loader_seq_train))
 
     print('1 Epoch = {} iters'.format(cfg.TRAIN.epoch_iters))
-
-    # create loader iterator
-    iterator_train = iter(loader_seq_train)
-
-    cfg['TRAIN']['epoch_iters'] = max(dataset_sup_train.num_sample, dataset_seq_train.num_sample) // cfg['TRAIN']['batch_size_per_gpu']
-    print(cfg['TRAIN']['epoch_iters'])
-    if cfg.TRAIN.sup == True:
-        iterator_train = iter(zip(loader_sup_train, loader_seq_train))
     # load nets into gpu
     if len(gpus) > 1:
         segmentation_module = UserScatteredDataParallel(
@@ -263,32 +274,46 @@ def main(cfg, gpus):
     optimizers = create_optimizers(nets, cfg)
 
     # Main loop
+    #history = {'train': {'epoch': [], 'loss': [], 'acc': [], 'unsup_weighted_losses': [], 'unsup_loss': [], 'weights': []}}
     history = {'train': {'epoch': [], 'loss': [], 'acc': []}}
     best_acc = 0
     best_IoU = 0
+    best_epoch = 0
     for epoch in range(cfg.TRAIN.start_epoch, cfg.TRAIN.num_epoch):
-        train(segmentation_module, iterator_train, optimizers, history, epoch+1, cfg) #, iterator_sup_train) 
+        train(segmentation_module, iterator_train, optimizers, history, epoch+1, cfg)
+        checkpoint(nets, history, cfg)
         
-        #checkpoint(nets, history, cfg, epoch+1, False)
         if epoch > 0:
             cfg.MODEL.weights_encoder = os.path.join(
                 cfg.DIR, 'encoder_' + cfg.VAL.checkpoint)
             cfg.MODEL.weights_decoder = os.path.join(
                 cfg.DIR, 'decoder_' + cfg.VAL.checkpoint)
-        #if epoch % 2 == 0: # do the evaluation on the validate data every other epoch
         with torch.no_grad():
             current_IoU, current_acc = evaluate.main(cfg, 0)
     
-        is_best = current_acc > best_acc
-        best_acc = max(current_acc, best_acc)
+        is_best = current_IoU > best_IoU
         best_IoU = max(current_IoU, best_IoU)
-        # checkpointing
-        checkpoint(nets, history, cfg, epoch+1, is_best)
-        #if is_best:
-        print("Epoch: {}, Current best IoU: {}, current best acc: {}".format(epoch+1, best_IoU, best_acc))
+        if is_best:
+            best_epoch = epoch
+            best_acc = current_acc
+            checkpoint_best(nets, history, cfg)
+        print("Epoch: {}, Current best IoU: {}, current best acc: {}".format(best_epoch+1, best_IoU, best_acc))
         
-
     print('Training Done!')
+
+    '''
+    print("Evaluating....")
+    cfg.MODEL.weights_encoder = os.path.join(cfg.DIR, 'encoder_epoch_best.pth')
+    cfg.MODEL.weights_decoder = os.path.join(cfg.DIR, 'decoder_epoch_best.pth')
+    assert os.path.exists(cfg.MODEL.weights_encoder) and \
+        os.path.exists(cfg.MODEL.weights_decoder), "checkpoint does not exitst!"
+    cfg.VAL.checkpoint = 'epoch_best.pth'
+    current_IoU, current_acc = evaluate.main(cfg, 0)
+    print("val IoU: {}, val acc: {}".format(current_IoU, current_acc))
+    cfg.DATASET.list_val = './data/test.odgt'
+    current_IoU, current_acc = evaluate.main(cfg, 0)
+    print("test IoU: {}, test acc: {}".format(current_IoU, current_acc))
+    '''
 
 
 if __name__ == '__main__':
