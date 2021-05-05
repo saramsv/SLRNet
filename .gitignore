@@ -14,6 +14,9 @@ results_for_hrNet
 res
 core*
 newly*
+
+plant_dataset/
+results/
 new_train_annotations/
 new_train_annotations_colored/
 new_train_noBack_annotations/

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from . import resnet, resnext, mobilenet, hrnet
+from . import resnet, resnext, mobilenet, hrnet, xception, xception65
 from mit_semseg.lib.nn import SynchronizedBatchNorm2d
 BatchNorm2d = SynchronizedBatchNorm2d
 
@@ -28,6 +28,7 @@ class SegmentationModule(SegmentationModuleBase):
         self.deep_sup_scale = deep_sup_scale
         self.batch_size = batch_size
         self.training_type = training_type
+
 
     def forward(self, feed_dict, *, epoch_weight=1, segSize=None):
         sup_feed_dict, seq_feed_dict, sup_pred, seq_pred = None, None, None, None
@@ -60,20 +61,40 @@ class SegmentationModule(SegmentationModuleBase):
                     raise RunTimeError('Cannot convert torch.Floattensor into torch.cuda.FloatTensor')
         
         # training
+		#### start for hidden layers
+        activation = {}
+        def get_activation(name):
+            def hook(model,input, output):
+                activation[name] = output.detach()
+            return hook
+
+        self.decoder.cbr.register_forward_hook(get_activation('cbr'))
+        self.decoder.conv_last.register_forward_hook(get_activation('conv_last'))
+
+		# h1 = torch.sum(activation['cbr'], dim=1).detach().cpu().numpy().transpose(1,2,0)
+		## h1 = torch.sum(activation['cbr'][0,:,:,:], dim=0).detach().cpu().numpy()
+		## h2 = torch.sum(activation['conv_last'][0,:,:,:], dim=0).detach().cpu().numpy()
+		# saving the prediction in an image
+        ## cv2.imwrite('h1.png', h1)
+		###### end 
         if segSize is None:
             if self.deep_sup_scale is not None: # use deep supervision technique
-                (sup_pred, sup_pred_deepsup) = self.decoder(self.encoder(sup_feed_dict['img_data'], return_feature_maps=True))
+                (sup_pred, sup_pred_deepsup) = self.decoder(self.encoder(sup_feed_dict['img_data']\
+				, return_feature_maps=True))
                 if seq_feed_dict != None:
                     (seq_pred, seq_pred_deepsup) = self.decoder(self.encoder(seq_feed_dict['img_data'],
                         return_feature_maps=True))
             else:
-                sup_pred = self.decoder(self.encoder(sup_feed_dict['img_data'], return_feature_maps=True))
+                sup_pred = self.decoder(self.encoder(sup_feed_dict['img_data'], \
+				return_feature_maps=True))
                 if seq_feed_dict != None:
-                    seq_pred = self.decoder(self.encoder(seq_feed_dict['img_data'], return_feature_maps=True))
+                    seq_pred = self.decoder(self.encoder(seq_feed_dict['img_data'],\
+					return_feature_maps=True))
 
 
             loss = self.crit(sup_pred, sup_feed_dict['seg_label']) #this would be our sup loss
             if self.training_type == 'seq':
+                ### all of this is for eta
                 l = len(seq_feed_dict['seg_label'])
                 seq_len = l / self.batch_size 
 
@@ -81,8 +102,10 @@ class SegmentationModule(SegmentationModuleBase):
                 losses = [self.crit(seq_pred[i,:,:,:].unsqueeze(0), seq_feed_dict['seg_label'][i,:,:].unsqueeze(0)) 
                         for i in range(l)]
                 
-                #mse_losses = []
-                #MSELoss = nn.MSELoss()
+                mse_losses = []
+                MSELoss = nn.MSELoss()
+                cbr_losses = []
+                conv_last_losses = []
 		
                 
                 """
@@ -95,12 +118,16 @@ class SegmentationModule(SegmentationModuleBase):
                 for i in range(len(losses)):
                     if i % seq_len == 0:
                         ind = i
+                        mse_losses.append(1)
+                        #cbr_losses.append(1)
+                        #conv_last_losses.append(1)
                     weights.append(torch.sum(seq_pred.argmax(dim=1)[i,:,:] == seq_pred.argmax(dim=1)[ind,:,:]).item()\
                             /(seq_feed_dict['seg_label'][ind,:,:].shape[0] *\
                             seq_feed_dict['seg_label'][ind,:,:].shape[1]))
-                    #if i != ind:
-                    #     mse_losses.append(MSELoss(seq_pred[i,:,:], seq_pred[ind,:,:]))
-
+                    if i != ind:
+                        mse_losses.append(MSELoss(seq_pred[i,:,:,:], seq_pred[ind,:,:,:]).item())
+                        #cbr_losses.append(MSELoss(activation['cbr'][i,:,:,:], activation['cbr'][ind,:,:,:]))
+                        #conv_last_losses.append(MSELoss(activation['conv_last'][i,:,:,:], activation['conv_last'][ind,:,:,:]))
                 weighted_losses = [a*b for a,b in zip(losses, weights)]
                 #instead of averaging the loss for all sup and unsup togather, I separated them
                 unsup_weighted_losses = []
@@ -110,20 +137,30 @@ class SegmentationModule(SegmentationModuleBase):
                         unsup_weighted_losses.append(weighted_losses[i])
                     else:
                         sup_weighted_losses.append(weighted_losses[i])
-
-                if len(unsup_weighted_losses) > 1:
+                if len(unsup_weighted_losses) >= 1:
                     unsup_loss = torch.mean(torch.stack(unsup_weighted_losses))
                 if len(sup_weighted_losses) >= 1:
                     sup_loss = torch.mean(torch.stack(sup_weighted_losses))
-                elif len(unsup_weighted_losses) == 1:
-                    unsup_loss = unsup_weighted_losses[0]
-                #if len(mse_losses) > 0:
-                #    mse_loss = torch.mean(torch.stack(mse_losses)) 
-
+                import bpython
+                bpython.embed(locals())
+                exit()
+                ##elif len(unsup_weighted_losses) == 1:
+                ##    unsup_loss = unsup_weighted_losses[0]
+                
+                '''
+                ## for mse 
+                if len(mse_losses) > 0:
+                    mse_loss = torch.mean(torch.stack(mse_losses)) 
+                loss += sup_loss +  mse_loss * epoch_weight
+                '''
+                # run as following for slrnet
                 unsup_loss = unsup_loss * epoch_weight
-                ## for consistency 
-                ##loss += sup_loss + unsup_loss + mse_loss
                 loss += sup_loss + unsup_loss
+
+                '''
+                seq_losses = self.crit(seq_pred, seq_feed_dict['seg_label'])
+                loss += seq_losses
+                '''
 
 
             if self.deep_sup_scale is not None:
@@ -189,6 +226,11 @@ class ModelBuilder:
             net_encoder = Resnet(orig_resnext) # we can still use class Resnet
         elif arch == 'hrnetv2':
             net_encoder = hrnet.__dict__['hrnetv2'](pretrained=pretrained)
+        elif arch == 'xception':
+            net_encoder = xception.__dict__['xception'](pretrained=pretrained)
+        elif arch == 'xception65':
+            # This implementation of xception65 doesn't have imagenet weights 
+            net_encoder = xception65.__dict__['xception65'](pretrained=pretrained)
         else:
             raise Exception('Architecture undefined!')
 

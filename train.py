@@ -282,23 +282,20 @@ def main(cfg, gpus):
     for epoch in range(cfg.TRAIN.start_epoch, cfg.TRAIN.num_epoch):
         train(segmentation_module, iterator_train, optimizers, history, epoch+1, cfg)
         checkpoint(nets, history, cfg)
-        
         if epoch > 0:
-            cfg.MODEL.weights_encoder = os.path.join(
-                cfg.DIR, 'encoder_' + cfg.VAL.checkpoint)
+            cfg.MODEL.weights_encoder = os.path.join(cfg.DIR, 'encoder_' + cfg.VAL.checkpoint)
             cfg.MODEL.weights_decoder = os.path.join(
-                cfg.DIR, 'decoder_' + cfg.VAL.checkpoint)
+            cfg.DIR, 'decoder_' + cfg.VAL.checkpoint)
         with torch.no_grad():
             current_IoU, current_acc = evaluate.main(cfg, 0)
-    
-        is_best = current_IoU > best_IoU
-        best_IoU = max(current_IoU, best_IoU)
-        if is_best:
-            best_epoch = epoch
-            best_acc = current_acc
-            checkpoint_best(nets, history, cfg)
-        print("Epoch: {}, Current best IoU: {}, current best acc: {}".format(best_epoch+1, best_IoU, best_acc))
-        
+            is_best = current_IoU > best_IoU
+            best_IoU = max(current_IoU, best_IoU)
+            if is_best:
+                best_epoch = epoch
+                best_acc = current_acc
+                checkpoint_best(nets, history, cfg)
+            print("Epoch: {}, Current best IoU: {}, current best acc: {}".format(best_epoch+1, best_IoU, best_acc))
+
     print('Training Done!')
 
     '''

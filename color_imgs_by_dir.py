@@ -12,7 +12,7 @@ import random
 dir_name = sys.argv[1]
 
 random.seed(0)
-num_classes = 7
+num_classes = 20
 #colors = [(197, 215, 20), (132, 248, 207), (155, 244, 183), (111, 71, 144), (71, 48, 128), (75, 158, 50), (37, 169, 241)]
 colors = [(random.randint(0, 255), random.randint(
     0, 255), random.randint(0, 255)) for _ in range(num_classes)]

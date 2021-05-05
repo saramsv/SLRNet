@@ -169,7 +169,7 @@ if __name__ == '__main__':
     '''
     names = {0:'bg', 1:'foot', 2:'hand', 3:'arm', 4:'leg', 5:'torso', 6:'head'}
     random.seed(0)
-    num_classes = 7
+    num_classes = 50
     colors = [[random.randint(0,255), random.randint(0,255), random.randint(0,255)] for _ in range(num_classes)]
     colors = np.array(colors, dtype='uint8')
     print(colors)

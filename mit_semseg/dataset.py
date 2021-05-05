@@ -306,6 +306,7 @@ class TrainDataset(BaseDataset):
             image_path = os.path.join(self.root_dataset, this_record['fpath_img'])
             segm_path = os.path.join(self.root_dataset, this_record['fpath_segm'])
 
+
             img = Image.open(image_path).convert('RGB')
             segm = Image.open(segm_path).convert('L')
             
