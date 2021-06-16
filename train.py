@@ -10,6 +10,7 @@ from distutils.version import LooseVersion
 # Numerical libs
 import torch
 import torch.nn as nn
+import math
 # Our libs
 from mit_semseg.config import cfg
 from mit_semseg.dataset import TrainDataset, DecomTrainDataset
@@ -51,7 +52,10 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg): #, su
         # forward pass
         #epoch_weight = epoch/cfg.TRAIN.num_epoch
         epoch_weight = ((epoch - 1) * cfg.TRAIN.epoch_iters + i) / cfg.TRAIN.max_iters #cfg['TRAIN']['max_iters']
-        loss, acc = segmentation_module(batch_data,epoch_weight=epoch_weight)
+		## to make it nonlinear
+        epoch_weight = 1 - math.exp(-10 *epoch_weight)
+        #epoch_weight = 1-(1/(10*epoch_weight + 1))
+        loss, acc = segmentation_module(batch_data,epoch_weight=epoch_weight, weight_type=cfg.TRAIN.weight_type)
         #loss, acc, weights, unsup_weighted_losses, unsup_loss = segmentation_module(batch_data)
         loss = loss.mean()
         acc = acc.mean()
@@ -232,7 +236,7 @@ def main(cfg, gpus):
         pin_memory=True)
 
     # Dataset and Loader
-    if cfg.TRAIN.type == 'seq':
+    if 'seq' in cfg.TRAIN.type:
         dataset_seq_train = DecomTrainDataset(
             cfg.DATASET.root_dataset,
             cfg.DATASET.list_train,
@@ -253,7 +257,7 @@ def main(cfg, gpus):
     cfg.TRAIN.max_iters = cfg.TRAIN.epoch_iters * cfg.TRAIN.num_epoch
 
     iterator_train = iter(loader_sup_train) #assuming we always have the sup path
-    if cfg.TRAIN.type == 'seq':
+    if 'seq' in cfg.TRAIN.type:
         print('sup: {}, seq: {}, max: {}'.format(dataset_sup_train.num_sample, dataset_seq_train.num_sample, max(dataset_sup_train.num_sample, dataset_seq_train.num_sample)))
         cfg.TRAIN.epoch_iters = max(dataset_sup_train.num_sample, dataset_seq_train.num_sample) // cfg.TRAIN.batch_size_per_gpu
         cfg.TRAIN.max_iters = cfg.TRAIN.epoch_iters * cfg.TRAIN.num_epoch

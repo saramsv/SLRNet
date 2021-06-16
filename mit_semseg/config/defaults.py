@@ -77,6 +77,7 @@ _C.TRAIN.seed = 304
 _C.TRAIN.type = 'seq'
 _C.TRAIN.sup = True
 _C.TRAIN.ignoreBg = True
+_C.TRAIN.weight_type = 'eta'
 
 # -----------------------------------------------------------------------------
 # Validation

@@ -4,7 +4,26 @@ import numpy as np
 from . import resnet, resnext, mobilenet, hrnet, xception, xception65
 from mit_semseg.lib.nn import SynchronizedBatchNorm2d
 BatchNorm2d = SynchronizedBatchNorm2d
+import cv2
 
+# Helper functions 
+def get_activation(name, activation):
+    def hook(model,input, output):
+        try: 
+            activation[name] = output.detach()
+        except:
+            activation[name] = []
+            for out in output:
+                activation[name].append(out.detach())
+    return hook
+
+def register_hooks(model, module_names, activation, show=False):
+    for name, module in model.named_children():
+        if name in module_names:
+            module.register_forward_hook(get_activation('{}'.format(name), activation))
+            if show: print("  -register_hooks: {}".format(name))
+
+# end
 
 class SegmentationModuleBase(nn.Module):
     def __init__(self):
@@ -30,7 +49,7 @@ class SegmentationModule(SegmentationModuleBase):
         self.training_type = training_type
 
 
-    def forward(self, feed_dict, *, epoch_weight=1, segSize=None):
+    def forward(self, feed_dict, *, epoch_weight=1, weight_type='eta', segSize=None):
         sup_feed_dict, seq_feed_dict, sup_pred, seq_pred = None, None, None, None
 
         if isinstance(feed_dict, tuple):
@@ -63,19 +82,24 @@ class SegmentationModule(SegmentationModuleBase):
         # training
 		#### start for hidden layers
         activation = {}
-        def get_activation(name):
+        
+        '''
+        # def get_activation(name):
+        def get_activation(name, activation):
             def hook(model,input, output):
                 activation[name] = output.detach()
             return hook
+        '''
 
-        self.decoder.cbr.register_forward_hook(get_activation('cbr'))
-        self.decoder.conv_last.register_forward_hook(get_activation('conv_last'))
+        # self.decoder.cbr.register_forward_hook(get_activation('cbr'))
+        # self.decoder.conv_last.register_forward_hook(get_activation('conv_last'))
+        hidden_wt = weight_type.split(',')
+        if len(list(set(hidden_wt)))!=len(hidden_wt): 
+            print("duplicated weight_type!!!")
+        
+        register_hooks(self.encoder, hidden_wt, activation, False)
+        register_hooks(self.decoder, hidden_wt, activation, False)        
 
-		# h1 = torch.sum(activation['cbr'], dim=1).detach().cpu().numpy().transpose(1,2,0)
-		## h1 = torch.sum(activation['cbr'][0,:,:,:], dim=0).detach().cpu().numpy()
-		## h2 = torch.sum(activation['conv_last'][0,:,:,:], dim=0).detach().cpu().numpy()
-		# saving the prediction in an image
-        ## cv2.imwrite('h1.png', h1)
 		###### end 
         if segSize is None:
             if self.deep_sup_scale is not None: # use deep supervision technique
@@ -93,7 +117,29 @@ class SegmentationModule(SegmentationModuleBase):
 
 
             loss = self.crit(sup_pred, sup_feed_dict['seg_label']) #this would be our sup loss
-            if self.training_type == 'seq':
+
+            MSELoss = nn.MSELoss()
+            cos = nn.CosineSimilarity(dim=0, eps=1e-6)
+
+            def cal_weight(tensor, l):
+                weights = [] 
+                b, c, w, h = tensor.shape
+                ind = 0 # the index of the image in the sequence with gt
+                for i in range(l):
+                    if i % seq_len == 0:
+                        ind = i
+                    #weights.append(torch.sum(cos(tensor[i], tensor[ind]))/(w * h))
+                    weights.append(torch.sum(cos(torch.sum(tensor[i], dim=0), torch.sum(tensor[ind], dim=0)))/(w * h))
+                return weights
+
+            #weight_types = ['eta', 'cbr', 'conv_last']
+            #weight_type = weight_types[2]
+
+            if "share" in self.training_type:
+                seq_losses = self.crit(seq_pred, seq_feed_dict['seg_label'])
+                loss += seq_losses * epoch_weight 
+
+            elif "seq" in self.training_type:
                 ### all of this is for eta
                 l = len(seq_feed_dict['seg_label'])
                 seq_len = l / self.batch_size 
@@ -101,33 +147,112 @@ class SegmentationModule(SegmentationModuleBase):
                 # loss for each individual image
                 losses = [self.crit(seq_pred[i,:,:,:].unsqueeze(0), seq_feed_dict['seg_label'][i,:,:].unsqueeze(0)) 
                         for i in range(l)]
-                
+                '''
+                for i in range(l):
+                    cv2.imwrite(str(i) + '.jpg', seq_feed_dict['img_data'][i].detach().cpu().numpy().transpose(1,2,0)*40)
+                    cv2.imwrite(str(i) + '.png',seq_feed_dict['seg_label'][i].detach().cpu().numpy()*20)
+                    cv2.imwrite(str(i) +'cbr.png', torch.sum(activation['cbr'][i], dim=0).detach().cpu().numpy())
+                    cv2.imwrite(str(i) +'conv.png', torch.sum(activation['conv_last'][i], dim=0).detach().cpu().numpy()*-10)
+                    cv2.imwrite(str(i) +'output.png', torch.sum(seq_pred[i], dim=0).detach().cpu().numpy()*-10)
+                import bpython
+                bpython.embed(locals())
+                exit()
+                '''
                 mse_losses = []
-                MSELoss = nn.MSELoss()
+                mse_losses2 = []
                 cbr_losses = []
                 conv_last_losses = []
 		
-                
                 """
                 used the (number of equal pixels in both seq_pred and gt label)/(total number pixel in the image) 
                 as the weight = similarity level
                 """
-                weights = [] 
                 # to change the weigh to one for images with actual gt labels
-                ind = 0 # the index of the image in the sequence with gt
-                for i in range(len(losses)):
-                    if i % seq_len == 0:
-                        ind = i
-                        mse_losses.append(1)
-                        #cbr_losses.append(1)
-                        #conv_last_losses.append(1)
-                    weights.append(torch.sum(seq_pred.argmax(dim=1)[i,:,:] == seq_pred.argmax(dim=1)[ind,:,:]).item()\
-                            /(seq_feed_dict['seg_label'][ind,:,:].shape[0] *\
-                            seq_feed_dict['seg_label'][ind,:,:].shape[1]))
-                    if i != ind:
-                        mse_losses.append(MSELoss(seq_pred[i,:,:,:], seq_pred[ind,:,:,:]).item())
-                        #cbr_losses.append(MSELoss(activation['cbr'][i,:,:,:], activation['cbr'][ind,:,:,:]))
-                        #conv_last_losses.append(MSELoss(activation['conv_last'][i,:,:,:], activation['conv_last'][ind,:,:,:]))
+                l = len(losses)
+                weights = []
+                tensor = seq_pred # lets have the eta as the default (eta is when the weights are calculated based on the network's predictions)
+                #if weight_type == 'eta':
+                #    tensor = seq_pred
+                
+                '''
+                # when the weights are only calculated based on the cbr layers in the decoder
+                if weight_type == 'cbr':
+                    tensor = activation['cbr']				
+
+                # when the weights are only calculated based on the conv_last layers in the decoder
+                if weight_type == 'conv_last':
+                    tensor = activation['conv_last']				
+                '''
+                
+                if len(activation.keys())==1: tensor = activation[list(activation.keys())[0]]
+                
+                # need to fix 
+                # stack layer's weights
+                if "-stack" in hidden_wt:
+                    tmp = 1
+                    for k, v in activation.items():
+                        if tmp==1: 
+                            tensor = v
+                            if not isinstance(tensor, list): tensor = [tensor]
+                            #print("tensor size: {}".format(len(tensor)))
+                            tmp+=1
+                        else:
+                            if isinstance(v, list): 
+                                tensor.extend(v)
+                            else:
+                                tensor.extend([v])
+                            #print("tensor size: {}; appended {}".format(len(tensor), k))
+                            
+                            '''
+                            if isinstance(v, list):
+                                for i in range(len(v)): print("   {} shape: {}".format(i, v[i].shape))
+                            else:
+                                print("   shape: {}".format(v.shape))
+                            '''
+                # weights = cal_weight(tensor, l)
+                eta_weights = cal_weight(seq_pred, l)
+                
+                '''
+                for encoder hidden layers, hrnet's output is a list of tensors. calculate similarity weights for each of them, 
+                then "mean stack"
+                '''
+                hidden_weights = []
+                if isinstance(tensor, list):
+                    tmp = []
+                    for i in range(len(tensor)):
+                        tmp.append(cal_weight(tensor[i], l))               
+                    zipped_weights = zip(*tmp)
+                    for w in zipped_weights:
+                        hidden_weights.append(torch.mean(torch.stack(w))) 
+                else:
+                    hidden_weights = cal_weight(tensor, l)
+                    
+                    
+                # when the weights are only calculated based on the predictions of the network and conv/cbr layers in the decoder
+                '''
+                -eta means combine seq_pred based weights and layer based weights 
+                '''
+                #if weight_type == 'eta-conv' or weight_type == 'eta-cbr': 
+                if "-eta" in hidden_wt: 
+                    #eta_weights = weights
+                    #weights = []
+                    '''
+                    if weight_type == 'eta-conv':
+                        tensor = activation['conv_last']				
+                    if weight_type == 'eta-cbr':
+                        tensor = activation['cbr']				
+                    decoder_weights = cal_weight(tensor, l)
+                    '''
+                    zipped_weights = zip(eta_weights, hidden_weights)
+                    for w in zipped_weights:
+                        weights.append(torch.mean(torch.stack(w))) 
+                else:
+                    weights = hidden_weights
+
+                #import bpython
+                #bpython.embed(locals())
+                #exit()
+                
                 weighted_losses = [a*b for a,b in zip(losses, weights)]
                 #instead of averaging the loss for all sup and unsup togather, I separated them
                 unsup_weighted_losses = []
@@ -141,9 +266,6 @@ class SegmentationModule(SegmentationModuleBase):
                     unsup_loss = torch.mean(torch.stack(unsup_weighted_losses))
                 if len(sup_weighted_losses) >= 1:
                     sup_loss = torch.mean(torch.stack(sup_weighted_losses))
-                import bpython
-                bpython.embed(locals())
-                exit()
                 ##elif len(unsup_weighted_losses) == 1:
                 ##    unsup_loss = unsup_weighted_losses[0]
                 
@@ -153,14 +275,8 @@ class SegmentationModule(SegmentationModuleBase):
                     mse_loss = torch.mean(torch.stack(mse_losses)) 
                 loss += sup_loss +  mse_loss * epoch_weight
                 '''
-                # run as following for slrnet
                 unsup_loss = unsup_loss * epoch_weight
                 loss += sup_loss + unsup_loss
-
-                '''
-                seq_losses = self.crit(seq_pred, seq_feed_dict['seg_label'])
-                loss += seq_losses
-                '''
 
 
             if self.deep_sup_scale is not None:

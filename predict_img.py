@@ -172,7 +172,7 @@ if __name__ == '__main__':
     num_classes = 50
     colors = [[random.randint(0,255), random.randint(0,255), random.randint(0,255)] for _ in range(num_classes)]
     colors = np.array(colors, dtype='uint8')
-    print(colors)
+    #print(colors)
     
     # Network Builders
     '''
@@ -224,7 +224,8 @@ if __name__ == '__main__':
     pred_color_palette_all = numpy.concatenate((org_pred_split, color_palette), axis=1)
     
     img_name = args.img.split('/')[-1].replace('.JPG','') 
-    cv2.imwrite("{}/{}_pred_color.png".format(args.save, img_name),pred_color) # cv2.cvtColor(pred_color, cv2.COLOR_RGB2BGR))
+    #cv2.imwrite("{}/{}_pred_color.png".format(args.save, img_name),pred_color) # cv2.cvtColor(pred_color, cv2.COLOR_RGB2BGR))
+    cv2.imwrite("{}/{}.png".format(args.save, img_name),pred) # cv2.cvtColor(pred_color, cv2.COLOR_RGB2BGR))
     ##cv2.imwrite("{}/{}_org_pred_split.png".format(args.save, img_name), cv2.cvtColor(org_pred_split, cv2.COLOR_RGB2BGR))
     ##cv2.imwrite("{}/{}_dst.png".format(args.save, img_name), cv2.cvtColor(dst, cv2.COLOR_RGB2BGR))
     ##cv2.imwrite("{}/{}_pred_color_palette.png".format(args.save, img_name), cv2.cvtColor(pred_color_palette, cv2.COLOR_RGB2BGR))

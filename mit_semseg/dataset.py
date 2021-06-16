@@ -169,11 +169,17 @@ class DecomTrainDataset(BaseDataset):
 
                 img = Image.open(image_path).convert('RGB')
                 segm = Image.open(segm_path).convert('L')
-                if img.size[0] != segm.size[0] and  abs(img.size[0] - segm.size[0]) < 5:
+                if img.size[0] != segm.size[0] and abs(img.size[0] - segm.size[0]) < 5:
                     img = img.resize((segm.size[0], img.size[1]), Image.ANTIALIAS)
+                
+                # temporary solution for unmatched size seq raw image
+                if img.size[0]!=segm.size[0] or img.size[1]!=segm.size[1]:
+                    img = img.resize((segm.size[0], segm.size[1]), Image.ANTIALIAS)
+                    
                 assert(segm.mode == "L")
                 assert(img.size[0] == segm.size[0])
                 assert(img.size[1] == segm.size[1])
+                  
 
                 # random_flip
                 if np.random.choice([0, 1]):
