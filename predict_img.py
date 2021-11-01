@@ -12,8 +12,8 @@ import matplotlib.pyplot as plt
 # System libs
 import os, csv, torch, numpy, scipy.io, PIL.Image, torchvision.transforms
 # Our libs
-from mit_semseg.models import ModelBuilder, SegmentationModule
-from mit_semseg.utils import colorEncode
+from semseg.models import ModelBuilder, SegmentationModule
+from semseg.utils import colorEncode
 
 # pass in mode config(yaml file)
 # return a dict for the file 

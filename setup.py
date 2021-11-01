@@ -4,7 +4,7 @@ with open('README.md', 'r') as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name='mit_semseg',
+    name='semseg',
     version='1.0.0',
     author='MIT CSAIL',
     description='Pytorch implementation for Semantic Segmentation/Scene Parsing on MIT ADE20K dataset',

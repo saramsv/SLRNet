@@ -1,7 +1,7 @@
 import yaml
 import argparse
 import torch.nn as nn
-from mit_semseg.models import ModelBuilder, SegmentationModule
+from semseg.models import ModelBuilder, SegmentationModule
 import os, csv, torch, numpy, scipy.io, PIL.Image, torchvision.transforms
     
 def parse_model_config(path):

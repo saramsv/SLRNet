@@ -9,12 +9,12 @@ import torch
 import torch.nn as nn
 from scipy.io import loadmat
 # Our libs
-from mit_semseg.config import cfg
-from mit_semseg.dataset import ValDataset
-from mit_semseg.models import ModelBuilder, SegmentationModule
-from mit_semseg.utils import AverageMeter, colorEncode, accuracy, intersectionAndUnion, setup_logger
-from mit_semseg.lib.nn import user_scattered_collate, async_copy_to
-from mit_semseg.lib.utils import as_numpy
+from semseg.config import cfg
+from semseg.dataset import ValDataset
+from semseg.models import ModelBuilder, SegmentationModule
+from semseg.utils import AverageMeter, colorEncode, accuracy, intersectionAndUnion, setup_logger
+from semseg.lib.nn import user_scattered_collate, async_copy_to
+from semseg.lib.utils import as_numpy
 from PIL import Image
 from tqdm import tqdm
 

@@ -1,0 +1,3 @@
+cat data/AllSeqsWithOneAnn2beCleaned_labeled.uniq.odgt.labeled_relevent | awk -F ',' '{print $1","$3","$2}' | sed 's/\"//g' | sed 's/]//g'|sed 's/\[//g' | sed 's/fpath_img: //g' | sed 's/fpath_segm: //g' | sed 's/{//g' > data/data_for_cycleGAN_train
+cat data/val.odgt | awk -F ',' '{print $1","$2}' | sed 's/\"//g' | sed 's/]//g'|sed 's/\[//g' | sed 's/fpath_img: //g' | sed 's/fpath_segm: //g' | sed 's/{//g' > data/data_for_cycleGAN_val
+cat data/test.odgt | awk -F ',' '{print $1","$2}' | sed 's/\"//g' | sed 's/]//g'|sed 's/\[//g' | sed 's/fpath_img: //g' | sed 's/fpath_segm: //g' | sed 's/{//g' > data/data_for_cycleGAN_test

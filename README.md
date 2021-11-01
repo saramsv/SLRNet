@@ -238,9 +238,9 @@ pip install git+https://github.com/CSAILVision/semantic-segmentation-pytorch.git
 
 Now this library can easily be consumed programmatically. For example
 ```python
-from mit_semseg.config import cfg
-from mit_semseg.dataset import TestDataset
-from mit_semseg.models import ModelBuilder, SegmentationModule
+from semseg.config import cfg
+from semseg.dataset import TestDataset
+from semseg.models import ModelBuilder, SegmentationModule
 ```
 
 ## Reference

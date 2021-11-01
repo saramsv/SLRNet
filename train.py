@@ -12,11 +12,11 @@ import torch
 import torch.nn as nn
 import math
 # Our libs
-from mit_semseg.config import cfg
-from mit_semseg.dataset import TrainDataset, DecomTrainDataset
-from mit_semseg.models import ModelBuilder, SegmentationModule
-from mit_semseg.utils import AverageMeter, parse_devices, setup_logger
-from mit_semseg.lib.nn import UserScatteredDataParallel, user_scattered_collate, patch_replication_callback
+from semseg.config import cfg
+from semseg.dataset import TrainDataset, DecomTrainDataset
+from semseg.models import ModelBuilder, SegmentationModule
+from semseg.utils import AverageMeter, parse_devices, setup_logger
+from semseg.lib.nn import UserScatteredDataParallel, user_scattered_collate, patch_replication_callback
 
 import evaluate
 from itertools import cycle
@@ -53,7 +53,7 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg): #, su
         #epoch_weight = epoch/cfg.TRAIN.num_epoch
         epoch_weight = ((epoch - 1) * cfg.TRAIN.epoch_iters + i) / cfg.TRAIN.max_iters #cfg['TRAIN']['max_iters']
 		## to make it nonlinear
-        epoch_weight = 1 - math.exp(-10 *epoch_weight)
+        ##epoch_weight = 1 - math.exp(-10 *epoch_weight)
         #epoch_weight = 1-(1/(10*epoch_weight + 1))
         loss, acc = segmentation_module(batch_data,epoch_weight=epoch_weight, weight_type=cfg.TRAIN.weight_type)
         #loss, acc, weights, unsup_weighted_losses, unsup_loss = segmentation_module(batch_data)
@@ -284,12 +284,14 @@ def main(cfg, gpus):
     best_IoU = 0
     best_epoch = 0
     for epoch in range(cfg.TRAIN.start_epoch, cfg.TRAIN.num_epoch):
-        train(segmentation_module, iterator_train, optimizers, history, epoch+1, cfg)
-        checkpoint(nets, history, cfg)
-        if epoch > 0:
-            cfg.MODEL.weights_encoder = os.path.join(cfg.DIR, 'encoder_' + cfg.VAL.checkpoint)
-            cfg.MODEL.weights_decoder = os.path.join(
-            cfg.DIR, 'decoder_' + cfg.VAL.checkpoint)
+        if cfg.TRAIN.start_epoch == 1 and epoch == cfg.TRAIN.start_epoch:
+            continue
+        else:
+            train(segmentation_module, iterator_train, optimizers, history, epoch+1, cfg)
+            checkpoint(nets, history, cfg)
+            if epoch > 0:
+                cfg.MODEL.weights_encoder = os.path.join(cfg.DIR, 'encoder_' + cfg.VAL.checkpoint)
+                cfg.MODEL.weights_decoder = os.path.join(cfg.DIR, 'decoder_' + cfg.VAL.checkpoint)
         with torch.no_grad():
             current_IoU, current_acc = evaluate.main(cfg, 0)
             is_best = current_IoU > best_IoU
@@ -361,13 +363,16 @@ if __name__ == '__main__':
 
     # Start from checkpoint
     #if cfg.TRAIN.start_epoch > 0:
+    print(cfg.TRAIN.start_epoch)
     if cfg.TRAIN.start_epoch != 0:
         cfg.MODEL.weights_encoder = os.path.join(
             #cfg.DIR, 'encoder_epoch_{}.pth'.format(cfg.TRAIN.start_epoch))
             cfg.DIR, 'encoder_epoch_best.pth')
+        print(f"weights for encoder: {os.path.join(cfg.DIR, 'encoder_epoch_best.pth')}")
         cfg.MODEL.weights_decoder = os.path.join(
             #cfg.DIR, 'decoder_epoch_{}.pth'.format(cfg.TRAIN.start_epoch))
             cfg.DIR, 'decoder_epoch_best.pth')
+        print(f"weights for decoder: {os.path.join(cfg.DIR, 'decoder_epoch_best.pth')}")
         assert os.path.exists(cfg.MODEL.weights_encoder) and \
             os.path.exists(cfg.MODEL.weights_decoder), "checkpoint does not exitst!"
 
@@ -385,5 +390,4 @@ if __name__ == '__main__':
 
     random.seed(cfg.TRAIN.seed)
     torch.manual_seed(cfg.TRAIN.seed)
-
     main(cfg, gpus)

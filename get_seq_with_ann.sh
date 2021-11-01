@@ -1,20 +1,24 @@
 # $1 is the name of the dir with annotated images in it
+# $2 is the dir where we have the sequences (/data/sara/TCT/CCT/body_part_sequencing/data/sequences/)
+# $3 where to save it
+# $4 the suffix like sequencedpca or _pcaed_sequenced
 ls $1/ |  while read img_name
 do
         img_name=$(echo $img_name | sed 's/.png//')
         id=$(echo $img_name | cut -c1-3)
-        if [ -f /data/sara/TCT/CCT/body_part_sequencing/data/sequences/$id"_pcaed_sequenced" ]
+	#echo $2$id$4
+        if [ -f $2$id$4 ]
         then
-                corresponding_cluster_name=$(grep -w $img_name /data/sara/TCT/CCT/body_part_sequencing/data/sequences/$id"_pcaed_sequenced" | cut -d ":" -f 2)
+                corresponding_cluster_name=$(grep -w $img_name $2$id$4 | cut -d ":" -f 2)
                 for cl in  $corresponding_cluster_name
                 do
                         i=0
-                        echo "/data/sara/semantic-segmentation-pytorch/new_train_annotations/"$img_name".png: "$cl >> data/AllSeqsWithOneAnn2beCleaned
+                        echo $1$img_name".png: "$cl >> $3 
                         if [ "$cl" != "shade" ] | [ "$cl" != "plastic" ] | [ "$cl" != "stake" ];
                         then
-                                grep -w $cl$ /data/sara/TCT/CCT/body_part_sequencing/data/sequences/$id"_pcaed_sequenced" | while read img
+                                grep -w $cl$ $2/$id$4 | while read img
                                 do
-                                echo $img >> data/AllSeqsWithOneAnn2beCleaned
+                                echo $img >> $3
                                 done
                         fi
                 done
