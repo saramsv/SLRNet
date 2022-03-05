@@ -18,3 +18,11 @@ pred_mask, img_original = predict_segmentation_mask(model, path=test_img, frame=
 
 pred_color, org_pred_split = visualize_result(img_original.copy(), pred_mask)
 ```
+
+All Aligned Predictions
+
+```
+/usb/body_alignment/
+    - /img
+    - /pred_anno
+```
